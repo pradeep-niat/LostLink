@@ -1,0 +1,421 @@
+import React, { useState } from 'react';
+import { StatusBar } from 'expo-status-bar';
+import { StyleSheet, Text, View, TouchableOpacity, FlatList, Alert, TextInput, ActivityIndicator, Linking } from 'react-native';
+
+export default function App() {
+  const [devices, setDevices] = useState([]);
+  const [scanning, setScanning] = useState(false);
+  const [registeredDevices, setRegisteredDevices] = useState([]);
+  const [ipAddress, setIpAddress] = useState('192.168.1.1');
+  const [selectedTab, setSelectedTab] = useState('scan');
+
+  const demoDevices = [
+    { id: '1', name: 'AirPods Pro', type: '🎧 Headphones', signal: -45, brand: 'Apple' },
+    { id: '2', name: 'Smart Watch', type: '⌚ Wearable', signal: -62, brand: 'Samsung' },
+    { id: '3', name: 'Wireless Wallet', type: '💳 Accessory', signal: -38, brand: 'Tile' },
+    { id: '4', name: 'Car Keys', type: '🔑 Keys', signal: -41, brand: 'KeySmart' },
+    { id: '5', name: 'Laptop Bag', type: '💼 Bag', signal: -55, brand: 'Dell' }
+  ];
+
+  const simulateScan = async () => {
+    setScanning(true);
+    setDevices([]);
+    
+    for (let i = 0; i < demoDevices.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, 600));
+      setDevices(prev => [...prev, demoDevices[i]]);
+    }
+    
+    setTimeout(() => setScanning(false), 1000);
+  };
+
+  const registerDevice = (device) => {
+    const newDevice = {
+      ...device,
+      id: `${device.id}-${Date.now()}`,
+      registeredAt: new Date().toLocaleTimeString(),
+      isLost: false
+    };
+    setRegisteredDevices(prev => [...prev, newDevice]);
+    Alert.alert('✅ Registered', `${device.name} is now protected by AI`);
+  };
+
+  const checkDeviceStatus = async (device) => {
+    try {
+      const response = await fetch(`http://${ipAddress}:3000/api/report-lost`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deviceName: device.name,
+          userContext: { location: 'current', time: new Date().toLocaleTimeString() }
+        })
+      });
+      
+      const data = await response.json();
+      Alert.alert('AI Analysis', data.message);
+      
+      if (data.aiDecision === 'alert') {
+        setRegisteredDevices(prev => 
+          prev.map(d => d.id === device.id ? { ...d, isLost: true } : d)
+        );
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Check server connection and IP address');
+    }
+  };
+
+  const TabButton = ({ title, icon, isActive, onPress }) => (
+    <TouchableOpacity 
+      style={[styles.tabButton, isActive && styles.tabButtonActive]}
+      onPress={onPress}
+    >
+      <Text style={[styles.tabIcon, isActive && styles.tabIconActive]}>{icon}</Text>
+      <Text style={[styles.tabText, isActive && styles.tabTextActive]}>{title}</Text>
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={styles.container}>
+      <StatusBar style="light" />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>FindGuard AI</Text>
+        <Text style={styles.headerSubtitle}>Smart Lost & Found System</Text>
+      </View>
+
+      {/* Server Config */}
+      <View style={styles.configCard}>
+        <Text style={styles.configTitle}>Server Configuration</Text>
+        <TextInput
+          style={styles.input}
+          value={ipAddress}
+          onChangeText={setIpAddress}
+          placeholder="192.168.1.1"
+          placeholderTextColor="#666"
+        />
+        <Text style={styles.configHelp}>Run ipconfig to find your computer's IP</Text>
+      </View>
+
+      {/* Tab Navigation */}
+      <View style={styles.tabContainer}>
+        <TabButton 
+          title="Scan" 
+          icon="🔍" 
+          isActive={selectedTab === 'scan'} 
+          onPress={() => setSelectedTab('scan')} 
+        />
+        <TabButton 
+          title="My Devices" 
+          icon="📱" 
+          isActive={selectedTab === 'devices'} 
+          onPress={() => setSelectedTab('devices')} 
+        />
+      </View>
+
+      {/* Content */}
+      {selectedTab === 'scan' && (
+        <View style={styles.tabContent}>
+          <TouchableOpacity 
+            style={styles.scanButton}
+            onPress={simulateScan}
+            disabled={scanning}
+          >
+            {scanning ? (
+              <ActivityIndicator color="white" />
+            ) : (
+              <Text style={styles.scanButtonText}>Start Device Scan</Text>
+            )}
+          </TouchableOpacity>
+
+          <Text style={styles.sectionTitle}>Discovered Devices ({devices.length})</Text>
+          
+          <FlatList
+            data={devices}
+            keyExtractor={item => item.id}
+            renderItem={({ item }) => (
+              <TouchableOpacity style={styles.deviceCard} onPress={() => registerDevice(item)}>
+                <View style={styles.deviceHeader}>
+                  <Text style={styles.deviceName}>{item.name}</Text>
+                  <Text style={styles.deviceType}>{item.type}</Text>
+                </View>
+                <View style={styles.deviceDetails}>
+                  <Text style={styles.deviceBrand}>{item.brand}</Text>
+                  <Text style={styles.deviceSignal}>📶 {item.signal} dBm</Text>
+                </View>
+                <Text style={styles.registerText}>Tap to register with AI protection</Text>
+              </TouchableOpacity>
+            )}
+            style={styles.deviceList}
+          />
+        </View>
+      )}
+
+      {selectedTab === 'devices' && (
+        <View style={styles.tabContent}>
+          <Text style={styles.sectionTitle}>Protected Devices ({registeredDevices.length})</Text>
+          
+          {registeredDevices.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyIcon}>📱</Text>
+              <Text style={styles.emptyText}>No devices registered yet</Text>
+              <Text style={styles.emptySubtext}>Scan and register devices to protect them</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={registeredDevices}
+              keyExtractor={item => item.id}
+              renderItem={({ item }) => (
+                <View style={[styles.registeredCard, item.isLost && styles.lostCard]}>
+                  <View style={styles.registeredHeader}>
+                    <Text style={styles.registeredName}>{item.name}</Text>
+                    <Text style={styles.registeredTime}>🕒 {item.registeredAt}</Text>
+                  </View>
+                  <View style={styles.registeredDetails}>
+                    <Text style={styles.registeredType}>{item.type}</Text>
+                    <Text style={styles.registeredSignal}>📶 {item.signal} dBm</Text>
+                  </View>
+                  {item.isLost ? (
+                    <Text style={styles.lostStatus}>🚨 AI Alert: Possibly Lost</Text>
+                  ) : (
+                    <TouchableOpacity 
+                      style={styles.checkButton}
+                      onPress={() => checkDeviceStatus(item)}
+                    >
+                      <Text style={styles.checkButtonText}>Check Status</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            />
+          )}
+        </View>
+      )}
+
+      {/* Footer */}
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>Built with ❤️ for Nxtwave × OpenAI Buildathon</Text>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#0a0f1d',
+    padding: 20,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 24,
+    marginTop: 40,
+  },
+  headerTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: '#888',
+  },
+  configCard: {
+    backgroundColor: '#1a1f2e',
+    padding: 20,
+    borderRadius: 16,
+    marginBottom: 20,
+  },
+  configTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: 'white',
+    marginBottom: 12,
+  },
+  input: {
+    backgroundColor: '#2a2f3e',
+    color: 'white',
+    padding: 16,
+    borderRadius: 12,
+    fontSize: 16,
+    marginBottom: 8,
+  },
+  configHelp: {
+    color: '#666',
+    fontSize: 12,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#1a1f2e',
+    borderRadius: 16,
+    padding: 4,
+    marginBottom: 20,
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+  },
+  tabButtonActive: {
+    backgroundColor: '#0066ff',
+  },
+  tabIcon: {
+    fontSize: 20,
+    marginRight: 8,
+    color: '#888',
+  },
+  tabIconActive: {
+    color: 'white',
+  },
+  tabText: {
+    color: '#888',
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: 'white',
+  },
+  tabContent: {
+    flex: 1,
+  },
+  scanButton: {
+    backgroundColor: '#0066ff',
+    padding: 20,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  scanButtonText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  sectionTitle: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  deviceList: {
+    flex: 1,
+  },
+  deviceCard: {
+    backgroundColor: '#1a1f2e',
+    padding: 20,
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  deviceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  deviceName: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  deviceType: {
+    color: '#0066ff',
+    fontSize: 14,
+  },
+  deviceDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  deviceBrand: {
+    color: '#888',
+  },
+  deviceSignal: {
+    color: '#00ff88',
+  },
+  registerText: {
+    color: '#0066ff',
+    fontSize: 12,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  emptyText: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    color: '#666',
+    textAlign: 'center',
+  },
+  registeredCard: {
+    backgroundColor: '#1a1f2e',
+    padding: 20,
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  lostCard: {
+    backgroundColor: '#2a1a1a',
+    borderLeftWidth: 4,
+    borderLeftColor: '#ff4444',
+  },
+  registeredHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  registeredName: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  registeredTime: {
+    color: '#888',
+    fontSize: 12,
+  },
+  registeredDetails: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  registeredType: {
+    color: '#888',
+  },
+  registeredSignal: {
+    color: '#00ff88',
+  },
+  lostStatus: {
+    color: '#ff4444',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  checkButton: {
+    backgroundColor: '#00cc66',
+    padding: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  checkButtonText: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  footer: {
+    alignItems: 'center',
+    marginTop: 20,
+    padding: 16,
+  },
+  footerText: {
+    color: '#666',
+    fontSize: 12,
+  },
+});
